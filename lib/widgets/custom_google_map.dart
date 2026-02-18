@@ -1,8 +1,10 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:googlemaps/models/place_model.dart';
-import 'package:location/location.dart';
+import 'package:googlemaps/utils/location_service.dart';
+import 'dart:ui' as ui;
+import 'package:location_platform_interface/location_platform_interface.dart';
 
 class CustomGoogleMap extends StatefulWidget {
   const CustomGoogleMap({super.key});
@@ -12,31 +14,28 @@ class CustomGoogleMap extends StatefulWidget {
 
 class _CustomGoogleMapState extends State<CustomGoogleMap> {
   late CameraPosition initialCameraPosition;
-   GoogleMapController? googleMapController;
-  late Location location;
+  GoogleMapController? googleMapController;
   Set<Marker> markers = {};
-  Set<Polyline>  polyLines={};
-  Set<Polygon>  polygons={};
-  Set<Circle>  circles={};
-
-
+  Set<Polyline> polyLines = {};
+  Set<Polygon> polygons = {};
+  Set<Circle> circles = {};
+  late LocationService locationService;
+  bool isFirstCall = true;
 
   @override
   void initState() {
     initialCameraPosition = const CameraPosition(
-      zoom: 12,
+      zoom: 1,
       target: LatLng(31.03890392341038, 31.37275461038365),
     );
-
-
-    //initMarkers();
+    locationService = LocationService();
+    initMarkers();
     initPolyLines();
-    //initPolygons();
+    initPolygons();
     initCircles();
-    location =Location();
     updateMyLocation();
 
-    checkAndRequestLocationService();
+    //checkAndRequestLocationService();
     super.initState();
   }
 
@@ -51,19 +50,16 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
     return Stack(
       children: [
         GoogleMap(
-          ///to hide the default + - buttons from the screen
-          //zoomControlsEnabled: false,
+          //zoomControlsEnabled: false, ///to hide the default + - Zoom buttons from the screen
           initialCameraPosition: initialCameraPosition,
           markers: markers,
           onMapCreated: (controller) {
             googleMapController = controller;
             initMapStyle();
-
           },
-          polylines:polyLines,
+          polylines: polyLines,
           circles: circles,
-
-
+          polygons: polygons,
         ),
         /*Positioned(
           bottom: 16,
@@ -89,139 +85,121 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
     googleMapController!.setMapStyle(nightMapStyle);
   }
 
-///For creating custom markers received from model
-  void initMarkers() async{
-    //var customMarkerIcon=await BitmapDescriptor.fromAssetImage(const ImageConfiguration(),'assets/images/marker.png');
-    var myMarkers=places.map((placeModel) => Marker(
-      //icon:customMarkerIcon ,
-      infoWindow: InfoWindow(
-        title: placeModel.name //to show info when user press on marker
-      ),
-      position: placeModel.latLong,
-        markerId: MarkerId(placeModel.id.toString()))).toSet();
-    markers.addAll(myMarkers);
+  ///its a method that helps me to change the size of custom marker
+  Future<Uint8List> getImageFromRawData(String image, double width) async {
+    var imageData = await rootBundle.load(image);
+    var imageCodec = await ui.instantiateImageCodec(
+        imageData.buffer.asUint8List(),
+        targetWidth: width.round());
+    var imageFrame = await imageCodec.getNextFrame();
+    var imageByteData =
+        await imageFrame.image.toByteData(format: ui.ImageByteFormat.png);
+    return imageByteData!.buffer.asUint8List();
+  }
 
+  ///For creating custom markers received from model
+  void initMarkers() async {
+    // var customMarkerIcon = await BitmapDescriptor.fromAssetImage(
+    //     const ImageConfiguration(), 'assets/images/marker.png');
+
+    var customMarkerIcon = BitmapDescriptor.bytes(
+        await getImageFromRawData('assets/images/marker.png', 20));
+    var myMarkers = places
+        .map((placeModel) => Marker(
+            icon: customMarkerIcon,
+            infoWindow: InfoWindow(
+                title: placeModel.name //to show info when user press on marker
+                ),
+            position: placeModel.latLong,
+            markerId: MarkerId(placeModel.id.toString())))
+        .toSet();
+    markers.addAll(myMarkers);
+//use it after change the marker icon
     // setState(() {
-    //
+
     // });
   }
 
   void initPolyLines() {
-    Polyline polyline=const Polyline(polylineId: PolylineId('1'),
-      color: Colors.blue,
-      startCap: Cap.roundCap,
-      width: 5,
+    Polyline polyline = const Polyline(
+        polylineId: PolylineId('1'),
+        color: Colors.blue,
+        startCap: Cap.roundCap,
+        width: 5,
+        points: [
+          LatLng(31.04030196508036, 31.369091463444317),
+          LatLng(31.037250000134875, 31.376172494606262),
+          LatLng(31.042324297595982, 31.37853283832691),
+          LatLng(31.047618928329026, 31.380206536601552),
 
-      points: [
-        LatLng(31.04030196508036, 31.369091463444317),
-        LatLng(31.037250000134875, 31.376172494606262),
-        LatLng(31.042324297595982, 31.37853283832691),
-        LatLng(31.047618928329026, 31.380206536601552),
-
-        //Created 3 lines
-
-      ]
-    );
+          //Created 3 lines
+        ]);
     polyLines.add(polyline);
   }
 
   // to create a shape like square - connected lines
   void initPolygons() {
-    Polygon polygon=Polygon(
-        polygonId:const PolygonId('1'),
-      fillColor: Colors.black.withOpacity(0.5),
-      //holes: [], to make like a hole in polygon This hole should not go outside the frame
-      points: const[
-        LatLng(31.04699388309403, 31.385399292736764),
-        LatLng(31.045743780298523, 31.353770686880075),
-        LatLng(31.035609068890274, 31.392265747409287),
-      ]
-
-    );
+    Polygon polygon = Polygon(
+        polygonId: const PolygonId('1'),
+        fillColor: Colors.black.withValues(
+          alpha: 0.5,
+        ),
+        strokeWidth: 1,
+        //holes: [], to make like a hole in polygon This hole should not go outside the frame
+        points: const [
+          LatLng(30.9646005148827, 31.24268649763915),
+          LatLng(30.95728053780054, 31.23509581532031),
+          LatLng(30.964555470585612, 31.246311114109737),
+        ]);
     polygons.add(polygon);
-
-    }
+  }
 
   void initCircles() {
-    Circle elmohamedyService=Circle(
-    center:const LatLng(31.039571157538532, 31.37891907744677),
+    Circle elmohamedyService = Circle(
+        center: const LatLng(31.039571157538532, 31.37891907744677),
         radius: 1000,
+
+        ///in meters
         strokeWidth: 1,
         fillColor: Colors.black.withOpacity(0.5),
-        circleId:const CircleId('1')
-    );
+        circleId: const CircleId('1'));
     circles.add(elmohamedyService);
-
-
   }
 
-  Future<void> checkAndRequestLocationService() async{
-    var isServiceEnabled=await location.serviceEnabled();
-    if(!isServiceEnabled){
-      await location.requestService();
-      isServiceEnabled=await location.requestService();
-      if(!isServiceEnabled ){
-        //ToDo : show error bar
-      }
-      checkAndRequestLocationPermission();
-    }
-
-
-
-  }
-
-  Future<bool> checkAndRequestLocationPermission() async{
-    var permissionStatus=await location.hasPermission();
-    if(permissionStatus ==PermissionStatus.deniedForever){
-      return false;
-    }
-
-      if(permissionStatus ==PermissionStatus.denied)
-      {
-        permissionStatus=await location.requestPermission();
-        if(permissionStatus !=PermissionStatus.granted)
-        {
-          return false;
-        }
-      }
-      return true;
-
-
-  }
-  void getLocationData(){
-    location.onLocationChanged.listen((locationData) {
-      var cameraPosition=CameraPosition(
-        zoom:15 ,
-          target: LatLng(
-              locationData.latitude!,
-              locationData.longitude!
-          )
-      );
-      var myLocationMarker=Marker(
-      markerId: const MarkerId('my location marker'),
-      position: LatLng(locationData.latitude!,
-      locationData.longitude!)
-      );
-      markers.add(myLocationMarker);
-      setState(() {
+  void updateMyLocation() async {
+    await locationService.checkAndRequestLocationService();
+    var hasPermission =
+        await locationService.checkAndRequestLocationPermission();
+    if (hasPermission) {
+      locationService.getRealTimeLocation((locationData) {
+        var myLocationMarker = Marker(
+            markerId: const MarkerId('my_location_marker'),
+            position: LatLng(locationData.latitude!, locationData.longitude!));
+        markers.add(myLocationMarker);
+        setState(() {});
+        updateMyCamera(locationData);
       });
-      googleMapController?.animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
-    });
+    } else {}
   }
 
-  void updateMyLocation() async{
-    await checkAndRequestLocationService();
-    var hasPermission =await checkAndRequestLocationPermission();
-    if(hasPermission)
-      {
-        getLocationData();
-      }else{
-
+  void updateMyCamera(LocationData locationData) {
+    ///when the map opend zoom is faraway then zoomed in to the user location by zoom 17
+    /// when using the newLatLng user can move free to any place on map 
+     if (isFirstCall) {
+      CameraPosition cameraPosition = CameraPosition(
+          target: LatLng(
+            locationData.latitude!,
+            locationData.longitude!,
+          ),
+          zoom: 17);
+      googleMapController
+          ?.animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
+          isFirstCall =false;
+    } else {
+      googleMapController?.animateCamera(CameraUpdate.newLatLng(
+          LatLng(locationData.latitude!, locationData.longitude!)));
     }
-    await checkAndRequestLocationPermission();
-    getLocationData();
   }
-
 }
 
 // World view 0 -> 3
